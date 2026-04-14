@@ -1,0 +1,13 @@
+{
+  "scheduler": {
+    "00:00-06:00": "lofi chill relax",
+    "06:00-12:00": "morning pop acoustic",
+    "12:00-18:00": "edm mix ncs",
+    "18:00-23:59": "jazz cafe relax"
+  },
+  "settings": {
+    "skipOnGenreChange": false,
+    "pauseIfEmpty": true,
+    "djVoiceRate": 5 
+  }
+}
