@@ -7,12 +7,9 @@ class GenreScheduler {
     }
 
     start() {
-        // Cek setiap jam, di menit ke 0 (Paksa sistem menggunakan jam WIB)
+        // Cek setiap jam, di menit ke 0
         cron.schedule('0 * * * *', () => {
             this.checkAndUpdateGenre();
-        }, {
-            scheduled: true,
-            timezone: "Asia/Jakarta" // Pengunci Zona Waktu Server (WIB)
         });
         
         // Pengecekan pertama saat bot nyala
@@ -20,11 +17,7 @@ class GenreScheduler {
     }
 
     checkAndUpdateGenre() {
-        // Mengonversi waktu server apapun menjadi format string wilayah Jakarta
-        const timeNowString = new Date().toLocaleString("en-US", {timeZone: "Asia/Jakarta"});
-        // Ekstrak jam aslinya dalam format angka
-        const hour = new Date(timeNowString).getHours();
-        
+        const hour = new Date().getHours();
         let newGenre = 'lofi chill'; // Default fallback
 
         for (const [timeRange, genre] of Object.entries(config.scheduler)) {
@@ -40,7 +33,7 @@ class GenreScheduler {
             }
         }
 
-        console.log(`[SCHEDULER] Waktu di Jakarta menunjukkan jam ${hour}. Set genre ke: ${newGenre}`);
+        console.log(`[SCHEDULER] Waktu menunjukkan jam ${hour}. Set genre ke: ${newGenre}`);
         this.player.setGenre(newGenre);
     }
 }

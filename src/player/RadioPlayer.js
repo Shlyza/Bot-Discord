@@ -11,6 +11,10 @@ class RadioPlayer {
         this.history = [];
         this.songCount = 0;
         this.isPlaying = false;
+        
+        // FITUR PLAY: Antrean lagu & status pemutar
+        this.queue = [];
+        this.isRadioPlaying = false; 
     }
 
     async joinAndStart(channelId, guildId) {
@@ -72,6 +76,30 @@ class RadioPlayer {
     async playNext() {
         if (this.isPlaying || !this.player) return;
 
+        // ==========================================
+        // CEK ANTREAN LAGU REQUEST USER (PRIORITAS!)
+        // ==========================================
+        if (this.queue.length > 0) {
+            const track = this.queue.shift();
+            try {
+                this.isPlaying = true;
+                this.isRadioPlaying = false; // Matikan status radio
+                this.currentSong = track;
+                
+                await this.player.playTrack({ track: { encoded: track.encoded } });
+                console.log(`[REQUEST MENGUDARA] 🎵 ${track.info.title}`);
+                return; // Setop sampai sini biar radio gausah dijalanin
+            } catch (error) {
+                console.error('[CRITICAL ERROR REQUEST]', error.message);
+                this.isPlaying = false;
+                setTimeout(() => this.playNext(), 3000);
+                return;
+            }
+        }
+
+        // Kalau sampe sini, artinya antrean request kosong -> Lanjut mode Radio
+        this.isRadioPlaying = true;
+
         if (this.songCount > 0 && this.songCount % config.settings.djVoiceRate === 0) {
             await this.playDJVoice(`Masih di Discord Radio. Saat ini menggunakan mesin ${this.engine}. Selamat mendengarkan.`);
             this.songCount++;
@@ -110,6 +138,9 @@ class RadioPlayer {
             
             this.history.push(chosenSong.info.identifier);
             if (this.history.length > 15) this.history.shift();
+
+            // Simpan track yang sedang putar
+            this.currentSong = chosenSong;
 
             // ==========================================
             // PERBAIKAN: Menggunakan { track: { encoded: ... } } (Lavalink v4)
@@ -156,6 +187,45 @@ class RadioPlayer {
             if (config.settings.skipOnGenreChange && this.player) {
                 this.player.stopTrack(); 
             }
+        }
+    }
+
+    // Logika ketika user menambah lagu dengan command !play
+    async addToQueue(query, message) {
+        const node = this.shoukaku.getIdealNode();
+        if (!node) return message.reply('❌ Genset Lavalink tidak tersedia! Coba lagi bentar.');
+
+        // Mengecek apakah yg dimasukkin link / kata biasa
+        const isUrl = query.startsWith('http://') || query.startsWith('https://');
+        const searchPrefix = this.engine === 'youtube' ? 'ytsearch:' : 'scsearch:';
+        const finalQuery = isUrl ? query : `${searchPrefix}${query}`;
+
+        const result = await node.rest.resolve(finalQuery);
+        
+        if (!result || result.loadType === 'empty' || result.loadType === 'error' || !result.data || (Array.isArray(result.data) && result.data.length === 0)) {
+            return message.reply(`❌ Waduh, lagunya nggak ketemu nih di \`${this.engine}\`.`);
+        }
+
+        // Kalau bentuknya Playlist
+        if (result.loadType === 'playlist') {
+            for (const track of result.data.tracks) {
+                this.queue.push(track);
+            }
+            message.reply(`📁 ✅ Playlist **${result.data.info.name}** berhasil ditumpuk ke antrean! (+${result.data.tracks.length} lagu).`);
+        } 
+        // Kalau bentuknya judul tunggal
+        else {
+            const track = result.loadType === 'track' ? result.data : result.data[0];
+            this.queue.push(track);
+            message.reply(`✅ **${track.info.title}** berhasil ditumpuk ke antrean nomor **#${this.queue.length}**.`);
+        }
+
+        // Kalau bot kebetulan lagi muterin radio (bukan antrean user), setop lagunya 
+        // Biar antrean user langsung ditarik & muter di prioritas terdepan
+        if (this.isPlaying && this.isRadioPlaying) {
+            this.player.stopTrack(); // Memicu event 'end' yg otomatis memutar this.queue teratas
+        } else if (!this.isPlaying) {
+            this.playNext(); // Pancing nyala kalau bot lagi diem
         }
     }
 }
