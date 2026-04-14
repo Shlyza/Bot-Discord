@@ -54,7 +54,7 @@ client.once('ready', async () => {
 
 client.on('messageCreate', async message => {
     // Agar command lokal tidak bentrok dengan command Railway, kita pakai prefix "?" atau baca dari .env
-    const prefix = process.env.PREFIX || '?'; // Default tanda tanya (?) buat trial di PC
+    const prefix = process.env.PREFIX || '!'; // Default tanda tanya (?) buat trial di PC
 
     if (message.author.bot || !message.content.startsWith(prefix)) return;
 
