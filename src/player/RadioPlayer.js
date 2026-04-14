@@ -1,4 +1,3 @@
-// src/player/RadioPlayer.js
 const googleTTS = require('google-tts-api');
 const config = require('../../config.json');
 
@@ -41,8 +40,7 @@ class RadioPlayer {
             this.player.on('error', (err) => {
                 console.error('[LAVALINK PLAYER ERROR]', err);
                 this.isPlaying = false;
-                // Jeda sebentar sebelum coba putar lagu lain saat error
-                setTimeout(() => this.playNext(), 2000); 
+                setTimeout(() => this.playNext(), 2000);
             });
 
             this.playNext();
@@ -74,7 +72,6 @@ class RadioPlayer {
     async playNext() {
         if (this.isPlaying || !this.player) return;
 
-        // Cek apakah sudah waktunya siaran DJ
         if (this.songCount > 0 && this.songCount % config.settings.djVoiceRate === 0) {
             await this.playDJVoice(`Masih di Discord Radio. Saat ini menggunakan mesin ${this.engine}. Selamat mendengarkan.`);
             this.songCount++;
@@ -86,15 +83,8 @@ class RadioPlayer {
             const node = this.shoukaku.getIdealNode();
             if (!node) return;
 
-            // ==========================================
-            // PERBAIKAN URL PLAYLIST/LINK
-            // ==========================================
-            const isUrl = this.currentGenre.startsWith('http://') || this.currentGenre.startsWith('https://');
             const searchPrefix = this.engine === 'youtube' ? 'ytsearch:' : 'scsearch:';
-            
-            // Jika genre adalah link, jangan tambahkan ytsearch & mix audio.
-            // Jika bukan link (kata biasa), pakai rumus pencarian standar.
-            const query = isUrl ? this.currentGenre : `${searchPrefix}${this.currentGenre} mix audio`;
+            const query = `${searchPrefix}${this.currentGenre} mix audio`;
             
             console.log(`[${this.engine.toUpperCase()}] Mencari: ${query}`);
             
@@ -107,27 +97,24 @@ class RadioPlayer {
                 return;
             }
 
-            // Normalisasi data dari Lavalink
             let searchData = result.loadType === 'search' || result.loadType === 'playlist' ? result.data : [result.data];
-            // Kalau yang masuk adalah Playlist YouTube (misal dari URL), ambil isi tracks-nya
             if (result.loadType === 'playlist') searchData = result.data.tracks;
 
-            // Filter agar lagu tidak berulang (berdasarkan history)
             let validSongs = searchData.filter(song => !this.history.includes(song.info.identifier));
             if (validSongs.length === 0) {
-                this.history = []; // Reset history jika semua lagu di daftar sudah pernah diputar
+                this.history = [];
                 validSongs = searchData;
             }
 
-            // Pilih lagu acak dari daftar pencarian/playlist yang valid
             const chosenSong = validSongs[Math.floor(Math.random() * validSongs.length)];
             
-            // Masukkan ke history
             this.history.push(chosenSong.info.identifier);
-            if (this.history.length > 15) this.history.shift(); // Hanya simpan 15 lagu terakhir
+            if (this.history.length > 15) this.history.shift();
 
-            // Eksekusi putar lagu ke Lavalink v4
-            await this.player.playTrack({ track: chosenSong.encoded });
+            // ==========================================
+            // PERBAIKAN: Menggunakan { track: { encoded: ... } } (Lavalink v4)
+            // ==========================================
+            await this.player.playTrack({ track: { encoded: chosenSong.encoded } });
             
             console.log(`[RADIO MENGUDARA] 🎵 ${chosenSong.info.title}`);
             this.songCount++;
@@ -141,22 +128,24 @@ class RadioPlayer {
 
     async playDJVoice(text) {
         this.isPlaying = true;
-        // Generate TTS audio URL
         const url = googleTTS.getAudioUrl(text, { lang: 'id', slow: false, host: 'https://translate.google.com' });
         
         try {
             const node = this.shoukaku.getIdealNode();
             const result = await node.rest.resolve(url); 
             if (result && result.data) {
+                // ==========================================
+                // PERBAIKAN: Format DJ Voice juga dibungkus
+                // ==========================================
                 const trackData = result.loadType === 'track' ? result.data : result.data[0];
-                await this.player.playTrack({ track: trackData.encoded });
+                await this.player.playTrack({ track: { encoded: trackData.encoded } });
                 console.log(`[DJ] Berbicara...`);
             } else {
                 throw new Error("Gagal load TTS");
             }
         } catch (error) {
             this.isPlaying = false;
-            this.playNext(); // Lewati DJ kalau TTS gagal
+            this.playNext(); 
         }
     }
 
@@ -164,7 +153,6 @@ class RadioPlayer {
         if (this.currentGenre !== newGenre) {
             this.currentGenre = newGenre;
             console.log(`[RADIO] Genre ganti ke: ${newGenre}`);
-            // Menghentikan lagu saat ini untuk langsung berpindah ke genre/link yang baru
             if (config.settings.skipOnGenreChange && this.player) {
                 this.player.stopTrack(); 
             }
