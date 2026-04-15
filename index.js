@@ -58,7 +58,7 @@ client.once('ready', async () => {
 
 client.on('messageCreate', async message => {
     // Prefix untuk bot lokal (pakai ? biar tidak bentrok dengan Railway yang pakai !)
-    const prefix = process.env.PREFIX || '?';
+    const prefix = process.env.PREFIX || '!';
 
     if (message.author.bot || !message.content.startsWith(prefix)) return;
 
