@@ -10,6 +10,9 @@ class GenreScheduler {
         // Cek setiap jam, di menit ke 0
         cron.schedule('0 * * * *', () => {
             this.checkAndUpdateGenre();
+        }, {
+            scheduled: true,
+            timezone: "Asia/Jakarta"
         });
         
         // Pengecekan pertama saat bot nyala
@@ -17,7 +20,11 @@ class GenreScheduler {
     }
 
     checkAndUpdateGenre() {
-        const hour = new Date().getHours();
+        // Dapatkan jam dengan memformat langsung ke angka (WIB)
+        const hourStr = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta", hour: "numeric", hour12: false });
+        // Misal pukul 09:00, parseInt("09") = 9
+        const hour = parseInt(hourStr);
+        
         let newGenre = 'lofi chill'; // Default fallback
 
         for (const [timeRange, genre] of Object.entries(config.scheduler)) {

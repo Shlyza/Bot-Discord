@@ -11,6 +11,10 @@ class RadioPlayer {
         this.history = [];
         this.songCount = 0;
         this.isPlaying = false;
+        
+        // FITUR PLAY: Antrean lagu & status pemutar
+        this.queue = [];
+        this.isRadioPlaying = false; 
     }
 
     async joinAndStart(channelId, guildId) {
@@ -72,6 +76,30 @@ class RadioPlayer {
     async playNext() {
         if (this.isPlaying || !this.player) return;
 
+        // ==========================================
+        // CEK ANTREAN LAGU REQUEST USER (PRIORITAS!)
+        // ==========================================
+        if (this.queue.length > 0) {
+            const track = this.queue.shift();
+            try {
+                this.isPlaying = true;
+                this.isRadioPlaying = false; // Matikan status radio
+                this.currentSong = track;
+                
+                await this.player.playTrack({ track: { encoded: track.encoded } });
+                console.log(`[REQUEST MENGUDARA] 🎵 ${track.info.title}`);
+                return; // Setop sampai sini biar radio gausah dijalanin
+            } catch (error) {
+                console.error('[CRITICAL ERROR REQUEST]', error.message);
+                this.isPlaying = false;
+                setTimeout(() => this.playNext(), 3000);
+                return;
+            }
+        }
+
+        // Kalau sampe sini, artinya antrean request kosong -> Lanjut mode Radio
+        this.isRadioPlaying = true;
+
         if (this.songCount > 0 && this.songCount % config.settings.djVoiceRate === 0) {
             await this.playDJVoice(`Masih di Discord Radio. Saat ini menggunakan mesin ${this.engine}. Selamat mendengarkan.`);
             this.songCount++;
@@ -83,22 +111,45 @@ class RadioPlayer {
             const node = this.shoukaku.getIdealNode();
             if (!node) return;
 
-            const searchPrefix = this.engine === 'youtube' ? 'ytsearch:' : 'scsearch:';
-            const query = `${searchPrefix}${this.currentGenre} mix audio`;
-            
-            console.log(`[${this.engine.toUpperCase()}] Mencari: ${query}`);
+            let query;
+            // Cek apakah genre dari scheduler ini berupa Link URL 
+            if (this.currentGenre.startsWith('http://') || this.currentGenre.startsWith('https://')) {
+                query = this.currentGenre; // Langsung hajar link-nya (Playlist / Single Video)
+                console.log(`[RADIO] Scheduler menggunakan link langsung: ${query}`);
+            } else {
+                const searchPrefix = this.engine === 'youtube' ? 'ytsearch:' : 'scsearch:';
+                query = `${searchPrefix}${this.currentGenre} mix audio`;
+                console.log(`[${this.engine.toUpperCase()}] Mencari: ${query}`);
+            }
             
             const result = await node.rest.resolve(query);
 
-            if (!result || result.loadType === 'empty' || result.loadType === 'error' || !result.data || result.data.length === 0) {
+            if (!result || result.loadType === 'empty' || result.loadType === 'error' || !result.data) {
                 console.log(`[${this.engine.toUpperCase()}] Waduh, lagu nggak ketemu. Skip otomatis...`);
                 this.isPlaying = false;
                 setTimeout(() => this.playNext(), 3000);
                 return;
             }
 
-            let searchData = result.loadType === 'search' || result.loadType === 'playlist' ? result.data : [result.data];
-            if (result.loadType === 'playlist') searchData = result.data.tracks;
+            let searchData = [];
+            // Parse loadType bawaan Lavalink v4
+            if (result.loadType === 'playlist') {
+                searchData = result.data.tracks;
+            } else if (result.loadType === 'search') {
+                searchData = result.data;
+            } else if (result.loadType === 'track') {
+                searchData = [result.data];
+            } else {
+                // Berjaga-jaga jika balikan list array biasa
+                searchData = Array.isArray(result.data) ? result.data : [result.data];
+            }
+
+            if (searchData.length === 0) {
+                console.log(`[RADIO] Data track kosong. Load as skip.`);
+                this.isPlaying = false;
+                setTimeout(() => this.playNext(), 3000);
+                return;
+            }
 
             let validSongs = searchData.filter(song => !this.history.includes(song.info.identifier));
             if (validSongs.length === 0) {
@@ -110,6 +161,9 @@ class RadioPlayer {
             
             this.history.push(chosenSong.info.identifier);
             if (this.history.length > 15) this.history.shift();
+
+            // Simpan track yang sedang putar
+            this.currentSong = chosenSong;
 
             // ==========================================
             // PERBAIKAN: Menggunakan { track: { encoded: ... } } (Lavalink v4)
@@ -156,6 +210,45 @@ class RadioPlayer {
             if (config.settings.skipOnGenreChange && this.player) {
                 this.player.stopTrack(); 
             }
+        }
+    }
+
+    // Logika ketika user menambah lagu dengan command !play
+    async addToQueue(query, message) {
+        const node = this.shoukaku.getIdealNode();
+        if (!node) return message.reply('❌ Genset Lavalink tidak tersedia! Coba lagi bentar.');
+
+        // Mengecek apakah yg dimasukkin link / kata biasa
+        const isUrl = query.startsWith('http://') || query.startsWith('https://');
+        const searchPrefix = this.engine === 'youtube' ? 'ytsearch:' : 'scsearch:';
+        const finalQuery = isUrl ? query : `${searchPrefix}${query}`;
+
+        const result = await node.rest.resolve(finalQuery);
+        
+        if (!result || result.loadType === 'empty' || result.loadType === 'error' || !result.data || (Array.isArray(result.data) && result.data.length === 0)) {
+            return message.reply(`❌ Waduh, lagunya nggak ketemu nih di \`${this.engine}\`.`);
+        }
+
+        // Kalau bentuknya Playlist
+        if (result.loadType === 'playlist') {
+            for (const track of result.data.tracks) {
+                this.queue.push(track);
+            }
+            message.reply(`📁 ✅ Playlist **${result.data.info.name}** berhasil ditumpuk ke antrean! (+${result.data.tracks.length} lagu).`);
+        } 
+        // Kalau bentuknya judul tunggal
+        else {
+            const track = result.loadType === 'track' ? result.data : result.data[0];
+            this.queue.push(track);
+            message.reply(`✅ **${track.info.title}** berhasil ditumpuk ke antrean nomor **#${this.queue.length}**.`);
+        }
+
+        // Kalau bot kebetulan lagi muterin radio (bukan antrean user), setop lagunya 
+        // Biar antrean user langsung ditarik & muter di prioritas terdepan
+        if (this.isPlaying && this.isRadioPlaying) {
+            this.player.stopTrack(); // Memicu event 'end' yg otomatis memutar this.queue teratas
+        } else if (!this.isPlaying) {
+            this.playNext(); // Pancing nyala kalau bot lagi diem
         }
     }
 }
